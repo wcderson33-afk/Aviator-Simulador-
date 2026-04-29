@@ -1,85 +1,101 @@
 import streamlit as st
 import numpy as np
 import matplotlib.pyplot as plt
-import time
+import pandas as pd
 
-st.set_page_config(page_title="Simulador Aviator", layout="wide")
-st.title("Simulador Aviator - Tempo Real")
-st.caption("⚠️ Educacional. RTP ~97%. Cada rodada é independente e aleatória.")
+st.set_page_config(page_title="Aviator Analisador", layout="wide")
+st.title("🚀 Aviator - Análise de Resultados Reais")
 
-col1, col2, col3 = st.columns(3)
+st.markdown("**Cole os multiplicadores que saíram na plataforma** pra analisar sua estratégia")
+
+# Input dos multiplicadores reais
+col1, col2 = st.columns([3, 1])
 with col1:
-    n_rodadas = st.number_input("Quantas rodadas?", 10, 1000, 100)
-    modo_tempo_real = st.checkbox("Modo Tempo Real", value=True)
+    entrada = st.text_area(
+        "Multiplicadores separados por vírgula, espaço ou enter:",
+        placeholder="1.23, 2.45, 1.01, 3.50, 1.12, 5.20...",
+        height=100
+    )
 with col2:
-    saque_alvo = st.number_input("Sacar em quanto?", 1.01, 100.0, 2.00, 0.01)
-    velocidade = st.slider("Velocidade", 0.01, 0.5, 0.05) if modo_tempo_real else 0
-with col3:
-    aposta = st.number_input("Aposta por rodada", 1.0, 1000.0, 10.0)
-    banca_inicial = st.number_input("Banca inicial", 10.0, 100000.0, 500.0)
+    saque_alvo = st.number_input("Saque Alvo", min_value=1.01, value=1.50, step=0.01)
+    aposta = st.number_input("Valor da Aposta R$", min_value=1.0, value=10.0, step=1.0)
+    banca_inicial = st.number_input("Banca Inicial R$", min_value=10.0, value=1000.0, step=10.0)
 
-if st.button("🎲 Iniciar Simulação", type="primary"):
-    r = np.random.uniform(0, 0.97, n_rodadas)
-    crashes = 1 / (1 - r)
-    crashes = np.maximum(crashes, 1.00)
-    
-    placeholder_grafico = st.empty()
-    placeholder_metricas = st.empty()
-    
-    banca = banca_inicial
-    historico_banca = [banca_inicial]
-    acertos = 0
-    
-    for i in range(int(n_rodadas)):
-        if banca <= 0:
-            st.error("💀 BANCA QUEBROU! Saldo zerado.")
-            break
-            
-        crash_atual = crashes[i]
-        ganhou = crash_atual >= saque_alvo
-        
-        if ganhou:
-            banca += aposta * (saque_alvo - 1)
-            acertos += 1
+if st.button("Analisar Resultados", type="primary"):
+    if entrada:
+        # Limpa e converte os números
+        import re
+        numeros = re.findall(r'\d+\.?\d*', entrada.replace(',', '.'))
+        multiplicadores = [float(n) for n in numeros if float(n) >= 1.0]
+
+        if multiplicadores:
+            # Calcula resultados
+            acertos = sum(1 for m in multiplicadores if m >= saque_alvo)
+            total_rodadas = len(multiplicadores)
+            taxa_acerto = (acertos / total_rodadas) * 100
+
+            lucro_total = acertos * aposta * (saque_alvo - 1) - (total_rodadas - acertos) * aposta
+            banca_final = banca_inicial + lucro_total
+
+            # Métricas
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Rodadas Analisadas", total_rodadas)
+            col2.metric("Taxa de Acerto", f"{taxa_acerto:.1f}%")
+            col3.metric("Lucro/Prejuízo", f"R$ {lucro_total:.2f}")
+            col4.metric("Banca Final", f"R$ {banca_final:.2f}")
+
+            # Gráfico da banca
+            banca_hist = [banca_inicial]
+            for m in multiplicadores:
+                if m >= saque_alvo:
+                    banca_hist.append(banca_hist[-1] + aposta * (saque_alvo - 1))
+                else:
+                    banca_hist.append(banca_hist[-1] - aposta)
+
+            fig, ax = plt.subplots(1, 2, figsize=(12, 4))
+
+            # Gráfico 1: Evolução da banca
+            ax[0].plot(banca_hist, color='blue', linewidth=2)
+            ax[0].axhline(y=banca_inicial, color='gray', linestyle='--', label='Banca Inicial')
+            ax[0].set_title('Evolução da Banca')
+            ax[0].set_ylabel('R$')
+            ax[0].legend()
+            ax[0].grid(True, alpha=0.3)
+
+            # Gráfico 2: Histograma dos multiplicadores
+            ax[1].hist(multiplicadores, bins=30, color='orange', alpha=0.7, edgecolor='black')
+            ax[1].axvline(x=saque_alvo, color='red', linestyle='--', linewidth=2, label=f'Alvo {saque_alvo}x')
+            ax[1].set_title('Distribuição dos Multiplicadores')
+            ax[1].set_xlabel('Multiplicador')
+            ax[1].set_ylabel('Frequência')
+            ax[1].legend()
+            ax[1].grid(True, alpha=0.3)
+
+            st.pyplot(fig)
+
+            # Tabela com estatísticas
+            st.subheader("📊 Estatísticas Detalhadas")
+            stats = {
+                "Métrica": ["Menor multiplicador", "Maior multiplicador", "Média", "Mediana",
+                           "Rodadas < 1.20x", "Rodadas > 10x", "Maior sequência de Loss"],
+                "Valor": [
+                    f"{min(multiplicadores):.2f}x",
+                    f"{max(multiplicadores):.2f}x",
+                    f"{np.mean(multiplicadores):.2f}x",
+                    f"{np.median(multiplicadores):.2f}x",
+                    f"{sum(1 for m in multiplicadores if m < 1.20)}",
+                    f"{sum(1 for m in multiplicadores if m > 10)}",
+                    f"{max([len(list(g)) for k, g in __import__('itertools').groupby([m < saque_alvo for m in multiplicadores]) if k], default=0)}"
+                ]
+            }
+            st.table(pd.DataFrame(stats))
+
+            # Aviso de RTP
+            st.warning(f"⚠️ RTP esperado do Aviator: 97%. Com {total_rodadas} rodadas, a perda esperada seria R$ {banca_inicial * 0.03:.2f}")
+
         else:
-            banca -= aposta
-            
-        historico_banca.append(banca)
-        
-        fig, ax = plt.subplots(1, 2, figsize=(12, 4))
-        
-        x = np.linspace(1, crash_atual, 100)
-        y = x
-        ax[0].plot(x, y, color='#ff4b4b', linewidth=3)
-        ax[0].scatter(crash_atual, crash_atual, color='red', s=200, zorder=5)
-        ax[0].text(crash_atual, crash_atual, f' {crash_atual:.2f}x CRASH', fontsize=12, weight='bold')
-        ax[0].set_xlim(1, max(10, crash_atual * 1.2))
-        ax[0].set_ylim(1, max(10, crash_atual * 1.2))
-        ax[0].set_title(f"Rodada {i+1}/{n_rodadas} | {'GANHOU' if ganhou else 'PERDEU'}")
-        ax[0].grid(True, alpha=0.3)
-        ax[0].set_xlabel("Multiplicador")
-        
-        ax[1].plot(historico_banca, color='#00cc88', linewidth=2)
-        ax[1].axhline(banca_inicial, color='blue', linestyle='--', alpha=0.5, label='Inicial')
-        ax[1].axhline(0, color='red', linestyle='--', label='Quebrou')
-        ax[1].set_title("Evolução da Banca")
-        ax[1].set_ylabel("R$")
-        ax[1].legend()
-        ax[1].grid(True, alpha=0.3)
-        
-        placeholder_grafico.pyplot(fig)
-        plt.close()
-        
-        with placeholder_metricas.container():
-            m1, m2, m3, m4 = st.columns(4)
-            m1.metric("Banca Atual", f"R$ {banca:.2f}")
-            m2.metric("Taxa Acerto", f"{acertos/(i+1)*100:.1f}%")
-            m3.metric("Lucro Total", f"R$ {banca - banca_inicial:.2f}")
-            m4.metric("Saque Alvo", f"{saque_alvo:.2f}x")
-        
-        if modo_tempo_real:
-            time.sleep(velocidade)
-    
-    st.success(f"Simulação finalizada! Resultado: R$ {banca:.2f}")
-    perda_esperada = n_rodadas * aposta * 0.03
-    st.warning(f"Perda esperada com RTP 97%: R$ {perda_esperada:.2f}")
+            st.error("Não encontrei números válidos. Use formato: 1.23, 2.45, 1.01")
+    else:
+        st.info("Cole os multiplicadores acima pra começar a análise")
+else:
+    st.info("👆 Cole os resultados e clique em 'Analisar Resultados'")
